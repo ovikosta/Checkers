@@ -1,6 +1,6 @@
-#include "Game/Game.h"
+﻿#include "Game/Game.h"
 
-int main(int argc, char* argv[])
+int WinMain(int argc, char* argv[])
 {
     Game g;
     g.play();

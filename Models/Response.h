@@ -1,10 +1,10 @@
-#pragma once
-
+﻿#pragma once
+// Перечисление возможных ответов событий в игре
 enum class Response
 {
-    OK,
-    BACK,
-    REPLAY,
-    QUIT,
-    CELL
+    OK, // Все в порядке.
+    BACK, // Отменить предыдущий ход
+    REPLAY, // Переиграть
+    QUIT, // Завершить игру
+    CELL // Выбор клетки
 };
