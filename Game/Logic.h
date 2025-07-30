@@ -19,6 +19,33 @@ public:
         optimization = (*config)("Bot", "Optimization");
     }
 
+
+    vector<move_pos> find_best_turns(const bool color)
+    {
+        // Сбрасываем предыдущие расчёты перед новым поиском
+        next_move.clear();
+        next_best_state.clear();
+
+        // Стартуем поиск с нулевого состояния, с начальной доской
+        find_first_best_turn(board->get_board(), color, -1, -1, 0);
+
+        // Восстанавливаем цепочку лучших ходов по сохранённым индексам
+        vector<move_pos> result;
+        int state = 0;
+
+        while (state != -1)
+        {
+            const auto& move = next_move[state];
+            if (move.x == -1)
+                break;
+
+            result.push_back(move);
+            state = next_best_state[state];
+        }
+
+        return result;
+    }
+
 private:
     vector<vector<POS_T>> make_turn(vector<vector<POS_T>> mtx, move_pos turn) const
     {
@@ -71,6 +98,117 @@ private:
             q_coef = 5; // если учитываем потенциал, дамки становятся ещё важнее
         }
         return (b + bq * q_coef) / (w + wq * q_coef); // Возвращаем итоговую оценку позиции как отношение сил
+    }
+
+    double find_first_best_turn(vector<vector<POS_T>> mtx, const bool color, const POS_T x, const POS_T y, size_t state,
+        double alpha = -1)
+    {
+        // Регистрируем новое состояние и заполняем заготовкой
+        next_best_state.push_back(-1);
+        next_move.emplace_back(-1, -1, -1, -1);
+
+        double best_score = -1;
+
+        // Находим доступные ходы для конкретной фигуры, если это не корень
+        if (state != 0)
+            find_turns(x, y, mtx);
+
+        auto current_turns = turns;
+        bool has_beats = have_beats;
+
+        // Если нет взятий и это не первый уровень — передаём ход противнику
+        if (!has_beats && state != 0)
+            return find_best_turns_rec(mtx, 1 - color, 0, alpha);
+
+        // Перебираем возможные ходы и ищем наилучший по оценке
+        for (const auto& move : current_turns)
+        {
+            size_t next_state = next_move.size();
+            double score = 0;
+
+            if (has_beats)
+            {
+                // Если продолжается серия боёв — остаётся тот же игрок
+                score = find_first_best_turn(make_turn(mtx, move), color, move.x2, move.y2, next_state, best_score);
+            }
+            else
+            {
+                // Обычный ход — передаём ход противнику
+                score = find_best_turns_rec(make_turn(mtx, move), 1 - color, 0, best_score);
+            }
+
+            // Обновляем лучший ход, если позиция оказалась выгоднее
+            if (score > best_score)
+            {
+                best_score = score;
+                next_best_state[state] = has_beats ? int(next_state) : -1;
+                next_move[state] = move;
+            }
+        }
+
+        return best_score;
+    }
+
+    double find_best_turns_rec(vector<vector<POS_T>> mtx, const bool color, const size_t depth,
+        double alpha = -1, double beta = INF + 1, const POS_T x = -1, const POS_T y = -1)
+    {
+        // Достигли лимита глубины — оцениваем позицию
+        if (depth == Max_depth)
+            return calc_score(mtx, (depth % 2 == color));
+
+        // Определяем допустимые ходы: для одной фигуры или всего цвета
+        if (x != -1)
+            find_turns(x, y, mtx);
+        else
+            find_turns(color, mtx);
+
+        auto available_turns = turns;
+        bool has_capture = have_beats;
+
+        // Если бой не обязателен и мы продолжали цепочку — просто меняем сторону
+        if (!has_capture && x != -1)
+            return find_best_turns_rec(mtx, 1 - color, depth + 1, alpha, beta);
+
+        // Если нет доступных ходов — фиксируем проигрыш или победу
+        if (available_turns.empty())
+            return (depth % 2 ? 0 : INF);  // В зависимости от того, чей ход
+
+        double min_eval = INF + 1;
+        double max_eval = -1;
+
+        for (const auto& move : available_turns)
+        {
+            double eval = 0.0;
+
+            // Вариант 1: обычный ход (передаём ход противнику)
+            if (!has_capture && x == -1)
+            {
+                eval = find_best_turns_rec(make_turn(mtx, move), 1 - color, depth + 1, alpha, beta);
+            }
+            // Вариант 2: продолжается бой или передаём ход той же стороне
+            else
+            {
+                eval = find_best_turns_rec(make_turn(mtx, move), color, depth, alpha, beta, move.x2, move.y2);
+            }
+
+            // Обновляем границы оценки
+            min_eval = min(min_eval, eval);
+            max_eval = max(max_eval, eval);
+
+            // Alpha-beta отсечение (если оптимизация разрешена)
+            if (depth % 2)
+                alpha = max(alpha, max_eval);
+            else
+                beta = min(beta, min_eval);
+
+            if (optimization != "O0" && alpha >= beta)
+            {
+                return (depth % 2 ? max_eval + 1 : min_eval - 1); // ускорение — выход из ветки
+            }
+        }
+
+        // В зависимости от глубины возвращаем лучший или худший вариант
+        return (depth % 2 ? max_eval : min_eval);
     }
 
 public:
